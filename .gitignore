@@ -1,0 +1,8 @@
+.env
+reviews.db
+reviews.db-shm
+reviews.db-wal
+__pycache__/
+*.pyc
+.DS_Store
+.python-version
