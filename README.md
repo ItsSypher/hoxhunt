@@ -64,7 +64,7 @@ cp .env.example .env
 | `GROQ_API_KEY` | — | Required when `LLM_PROVIDER=groq`. Get one free at https://console.groq.com |
 | `GROQ_MODEL` | `llama-3.3-70b-versatile` | Groq model name |
 | `GEMINI_API_KEY` | — | Required when `LLM_PROVIDER=gemini`. Get one free at https://ai.google.dev/gemini-api/docs/api-key |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Gemini model name |
+| `GEMINI_MODEL` | `gemini-3.0-flash` | Gemini model name |
 
 ---
 

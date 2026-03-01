@@ -211,7 +211,7 @@ def main() -> None:
             raise EnvironmentError(
                 "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key."
             )
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-3.0-flash")
         genai.configure(api_key=api_key)
         gemini_model = genai.GenerativeModel(
             model_name=model_name,
