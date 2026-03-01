@@ -52,10 +52,14 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and set your GROQ_API_KEY
+# Edit .env — set LLM_PROVIDER to 'groq' or 'gemini' and fill in the matching API key
 ```
 
-The default model is `llama-3.3-70b-versatile`. Override it in `.env` with `GROQ_MODEL=<model-name>`.
+**Groq** (default) — get a free key at https://console.groq.com  
+Default model: `llama-3.3-70b-versatile`. Override with `GROQ_MODEL`.
+
+**Gemini** — get a free key at https://ai.google.dev/gemini-api/docs/api-key  
+Default model: `gemini-2.0-flash`. Override with `GEMINI_MODEL`.
 
 ---
 

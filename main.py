@@ -3,9 +3,9 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from dotenv import load_dotenv
-from groq import Groq
 
 load_dotenv()
 
@@ -99,7 +99,7 @@ def validate_response(data: dict) -> None:
         raise ValueError(f"Invalid 'sentiment' (must be 'positive' or 'negative'): {sentiment!r}")
 
 
-def call_groq(client: Groq, model: str, review_text: str) -> dict:
+def call_groq(client, model: str, review_text: str) -> dict:
     response = client.chat.completions.create(
         model=model,
         messages=build_messages(review_text),
@@ -112,10 +112,17 @@ def call_groq(client: Groq, model: str, review_text: str) -> dict:
     return data
 
 
+def call_gemini(model, review_text: str) -> dict:
+    response = model.generate_content(review_text)
+    data = json.loads(response.text)
+    validate_response(data)
+    return data
+
+
 # Phase 2 — Process pending rows
 
 
-def process(conn: sqlite3.Connection, client: Groq, model: str) -> None:
+def process(conn: sqlite3.Connection, call_fn: Callable[[str], dict]) -> None:
     pending = conn.execute(
         "SELECT id, reviewer, original_review FROM reviews WHERE status = 'pending'"
     ).fetchall()
@@ -135,7 +142,7 @@ def process(conn: sqlite3.Connection, client: Groq, model: str) -> None:
         print(f"  → [{review_id}] {reviewer} ...", end=" ", flush=True)
 
         try:
-            result = call_groq(client, model, row["original_review"])
+            result = call_fn(row["original_review"])
             conn.execute(
                 """
                 UPDATE reviews
@@ -181,21 +188,52 @@ def process(conn: sqlite3.Connection, client: Groq, model: str) -> None:
 
 
 def main() -> None:
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "GROQ_API_KEY is not set. Copy .env.example to .env and add your key."
+    provider = os.environ.get("LLM_PROVIDER", "groq").lower()
+
+    if provider == "groq":
+        from groq import Groq
+
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise EnvironmentError(
+                "GROQ_API_KEY is not set. Copy .env.example to .env and add your key."
+            )
+        model_name = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        client = Groq(api_key=api_key)
+        call_fn: Callable[[str], dict] = lambda text: call_groq(client, model_name, text)
+        print(f"[llm] Provider: Groq | Model: {model_name}")
+
+    elif provider == "gemini":
+        import google.generativeai as genai
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise EnvironmentError(
+                "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key."
+            )
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(
+            model_name=model_name,
+            generation_config={
+                "response_mime_type": "application/json",
+                "temperature": 0.2,
+            },
+            system_instruction=SYSTEM_PROMPT,
         )
+        call_fn = lambda text: call_gemini(gemini_model, text)
+        print(f"[llm] Provider: Gemini | Model: {model_name}")
 
-    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-
-    client = Groq(api_key=api_key)
+    else:
+        raise EnvironmentError(
+            f"Unknown LLM_PROVIDER: {provider!r}. Must be 'groq' or 'gemini'."
+        )
 
     conn = get_connection()
     try:
         init_db(conn)
         ingest(conn, REVIEWS_PATH)
-        process(conn, client, model)
+        process(conn, call_fn)
     finally:
         conn.close()
 
