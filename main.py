@@ -12,6 +12,7 @@ load_dotenv()
 DB_PATH = Path("reviews.db")
 SCHEMA_PATH = Path("schema.sql")
 REVIEWS_PATH = Path("reviews.json")
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 
 
 # DB setup
@@ -112,9 +113,32 @@ def call_groq(client, model: str, review_text: str) -> dict:
     return data
 
 
-def call_gemini(model, review_text: str) -> dict:
-    response = model.generate_content(review_text)
-    data = json.loads(response.text)
+def normalize_gemini_model_name(model_name: str) -> str:
+    model_name = model_name.strip()
+    if model_name.startswith("models/"):
+        return model_name.removeprefix("models/")
+    return model_name
+
+
+def is_gemini_model_not_found_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "404" in message or "not found" in message or "not supported" in message
+
+
+def call_gemini(client, model_name: str, review_text: str) -> dict:
+    response = client.models.generate_content(
+        model=model_name,
+        contents=review_text,
+        config={
+            "system_instruction": SYSTEM_PROMPT,
+            "response_mime_type": "application/json",
+            "temperature": 0.2,
+        },
+    )
+    raw = (getattr(response, "text", "") or "").strip()
+    if not raw:
+        raise ValueError("Gemini returned an empty response.")
+    data = json.loads(raw)
     validate_response(data)
     return data
 
@@ -204,24 +228,32 @@ def main() -> None:
         print(f"[llm] Provider: Groq | Model: {model_name}")
 
     elif provider == "gemini":
-        import google.generativeai as genai
+        from google import genai
 
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise EnvironmentError(
                 "GEMINI_API_KEY is not set. Copy .env.example to .env and add your key."
             )
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-3.0-flash")
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(
-            model_name=model_name,
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.2,
-            },
-            system_instruction=SYSTEM_PROMPT,
-        )
-        call_fn = lambda text: call_gemini(gemini_model, text)
+        requested_model = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+        model_name = normalize_gemini_model_name(requested_model) or DEFAULT_GEMINI_MODEL
+        client = genai.Client(api_key=api_key)
+
+        def gemini_call(text: str) -> dict:
+            nonlocal model_name
+            try:
+                return call_gemini(client, model_name, text)
+            except Exception as exc:  # noqa: BLE001
+                if (
+                    model_name != DEFAULT_GEMINI_MODEL
+                    and is_gemini_model_not_found_error(exc)
+                ):
+                    model_name = DEFAULT_GEMINI_MODEL
+                    print(f"[llm] Gemini default fallback: {model_name}")
+                    return call_gemini(client, model_name, text)
+                raise
+
+        call_fn = gemini_call
         print(f"[llm] Provider: Gemini | Model: {model_name}")
 
     else:
